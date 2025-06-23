@@ -1,4 +1,4 @@
-name: Build WinMemoryCleaner
+name: Build and Release
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Choose the environment to deploy (develop or release)'
+        description: 'Deploy environment'
         required: true
         default: 'develop'
         type: choice
@@ -23,9 +23,6 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      CONFIGURATION: Release
-
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
 
@@ -59,7 +56,7 @@ jobs:
         run: msbuild src\WinMemoryCleaner.sln /p:Configuration=Release /p:Platform="Any CPU"
 
       - name: Import signing certificate (main branch only)
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         shell: pwsh
         run: |
           echo "${{ secrets.SIGNING_CERT }}" | Out-File encoded.txt -Encoding ascii
@@ -67,14 +64,14 @@ jobs:
           Remove-Item encoded.txt
 
       - name: Sign executable (main branch only)
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         shell: pwsh
         run: |
-          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
             Where-Object { $_.FullName -match '\\x64\\' } |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $signtool) {
-            $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
               Where-Object { $_.FullName -match '\\x86\\' } |
               Select-Object -First 1 -ExpandProperty FullName
           }
@@ -87,46 +84,31 @@ jobs:
             exit 1
           }
           $exePath = Resolve-Path src\bin\Release\WinMemoryCleaner.exe
-          & $signtool sign `
-            /f cert.pfx `
-            /p "${{ secrets.SIGNING_PASSWORD }}" `
-            /tr http://timestamp.digicert.com `
-            /td sha256 /fd sha256 `
-            /v `
-            $exePath
+          & $signtool sign /f cert.pfx /p "${{ secrets.SIGNING_PASSWORD }}" `
+            /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exePath
 
-      - name: Verify executable signature (main branch only)
-        if: github.ref == 'refs/heads/main'
+      - name: Verify signature (main branch only)
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         shell: pwsh
         run: |
           $sigInfo = Get-AuthenticodeSignature -FilePath src\bin\Release\WinMemoryCleaner.exe
           if ($sigInfo.SignerCertificate -eq $null) {
             Write-Error "Executable is not signed!"
             exit 1
-          } else {
-            Write-Host "Executable is signed."
           }
 
       - name: Cleanup signing certificate (main branch only)
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         shell: pwsh
         run: Remove-Item cert.pfx
 
-      - name: Create ZIP archive of executable (main branch only)
-        if: github.ref == 'refs/heads/main'
+      - name: Create ZIP archive (main branch only)
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         shell: pwsh
-        run: |
-          Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
+        run: Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
 
-      - name: Create and push version tag
-        shell: pwsh
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git tag ${{ steps.bump.outputs.new_tag }}
-          git push origin ${{ steps.bump.outputs.new_tag }}
-
-      - name: Upload build artifacts
+      - name: Upload build artifacts for release (main branch only)
+        if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: built
@@ -137,51 +119,33 @@ jobs:
   release:
     needs: build
     runs-on: windows-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'release'
 
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v3
 
-      - name: Download build artifacts
+      - name: Download build artifacts from build job
         uses: actions/download-artifact@v4
         with:
           name: built
-          path: build_artifacts
+          path: release_artifacts
 
-      - name: List downloaded artifacts for debugging
-        shell: pwsh
-        run: Get-ChildItem -Recurse build_artifacts | ForEach-Object { Write-Host $_.FullName }
-
-      - name: Verify signature of executable
+      - name: Create and push version tag (main branch only)
         shell: pwsh
         run: |
-          $exePath = "build_artifacts/src/bin/Release/WinMemoryCleaner.exe"
-          if (-not (Test-Path $exePath)) {
-            Write-Error "Executable not found at $exePath"
-            exit 1
-          }
-          $sigInfo = Get-AuthenticodeSignature -FilePath $exePath
-          if ($sigInfo.SignerCertificate -eq $null) {
-            Write-Error "Executable is not signed!"
-            exit 1
-          } else {
-            Write-Host "Executable is signed."
-          }
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch --tags
+          git tag ${{ needs.build.outputs.new_tag }}
+          git push origin ${{ needs.build.outputs.new_tag }}
 
-      - name: Draft release using Release Drafter
-        uses: release-drafter/release-drafter@v6
-        with:
-          config-name: release-drafter.yml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release assets
+      - name: Upload release assets (main branch only)
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.build.outputs.new_tag }}
           files: |
-            ./build_artifacts/src/bin/Release/WinMemoryCleaner.exe
-            ./build_artifacts/WinMemoryCleaner.zip
+            release_artifacts/src/bin/Release/WinMemoryCleaner.exe
+            release_artifacts/WinMemoryCleaner.zip
           draft: true
-          make_latest: true
+          generate_release_notes: true
