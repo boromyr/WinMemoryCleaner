@@ -30,15 +30,11 @@ jobs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
 
     steps:
-      # Checkout the latest code from the repository.
       - uses: actions/checkout@v3
 
-      # Set up MSBuild for building .NET Framework projects.
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1
 
-      # Bump the minor version tag. This helps identify and track builds.
-      # Only tags matching x.y (e.g. 1.3) are considered; increments minor version.
       - name: Bump minor version tag
         id: bump
         shell: pwsh
@@ -46,35 +42,27 @@ jobs:
           git fetch --tags
           $tags = git tag --sort=-creatordate | Where-Object { $_ -match '^[0-9]+\.[0-9]+$' }
           if (-not $tags) {
-            $newTag='1.0'
+            $newTag = '1.0'
           } else {
             $parts = ($tags[0]).Split('.')
-            $newTag = "{0}.{1}" -f $parts[0],([int]$parts[1]+1)
+            $newTag = "{0}.{1}" -f $parts[0], ([int]$parts[1] + 1)
           }
-          Write-Host "new_tag=$newTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "new_tag=$newTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      # Restore NuGet packages for dependencies.
       - name: Restore NuGet packages
         shell: pwsh
         run: nuget restore src\WinMemoryCleaner.sln
 
-      # Build the solution using MSBuild and the Release configuration.
       - name: Build solution
         shell: pwsh
         run: msbuild src\WinMemoryCleaner.sln /p:Configuration=Release /p:Platform="Any CPU"
 
-      # Create a ZIP archive of the executable for releases (main branch only).
       - name: Zip executable (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
 
-      # === BEGIN CODE SIGNING STEPS (main branch only) ===
-
-      # IMPORTANT: Import the base64-encoded PFX certificate secret and decode it.
-      # The secret SIGNING_CERT must be the output of: base64 -w0 < your.pfx > cert.base64.txt
-      # The secret SIGNING_PASSWORD must be the PFX file password.
       - name: Import signing certificate (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -83,20 +71,18 @@ jobs:
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
 
-      # IMPORTANT: Debug step to ensure cert.pfx is valid before signing.
-      # This will show the certificate details and help diagnose errors if signing fails.
       - name: Debug: Check PFX file (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
+          if (-not (Test-Path "cert.pfx")) {
+            Write-Error "cert.pfx not found!"
+            exit 1
+          }
           Write-Host "Checking cert.pfx existence and info..."
           Get-ChildItem cert.pfx | Format-List
-          certutil -dump cert.pfx
+          & certutil.exe -dump cert.pfx
 
-      # IMPORTANT: This step signs the executable using signtool and the imported certificate.
-      # - Fails early if cert.pfx does not exist.
-      # - Uses x64 signtool if available, then x86.
-      # - Uses SHA256 for digest and timestamping.
       - name: Sign executable (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -124,15 +110,11 @@ jobs:
             /td sha256 /fd sha256 `
             src\bin\Release\WinMemoryCleaner.exe
 
-      # Remove the certificate file after signing for security.
       - name: Cleanup certificate (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: Remove-Item cert.pfx
 
-      # === END CODE SIGNING STEPS ===
-
-      # Create and push the new version tag for traceability.
       - name: Create and push tag
         shell: pwsh
         run: |
@@ -141,7 +123,6 @@ jobs:
           git tag ${{ steps.bump.outputs.new_tag }}
           git push origin ${{ steps.bump.outputs.new_tag }}
 
-      # Upload build artifacts for download and further release steps.
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -156,16 +137,13 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      # Checkout repo to attach correct commit info to the release.
       - uses: actions/checkout@v3
 
-      # Download artifacts built in the previous job.
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: built
 
-      # Draft the release using Release Drafter config and PR info.
       - name: Draft Release using Release Drafter
         uses: release-drafter/release-drafter@v5
         with:
@@ -173,7 +151,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Upload both the executable and ZIP as assets to the GitHub release.
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
