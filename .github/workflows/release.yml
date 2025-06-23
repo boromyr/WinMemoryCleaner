@@ -57,8 +57,6 @@ jobs:
         shell: pwsh
         run: msbuild src\WinMemoryCleaner.sln /p:Configuration=Release /p:Platform="Any CPU"
 
-      # === CODE SIGNING (main only) ===
-
       - name: Import signing certificate (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -66,18 +64,6 @@ jobs:
           echo "${{ secrets.SIGNING_CERT }}" | Out-File encoded.txt -Encoding ascii
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
-
-      - name: Debug: Check PFX file (release only)
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "cert.pfx")) {
-            Write-Error "cert.pfx not found!"
-            exit 1
-          }
-          Write-Host "Checking cert.pfx existence and info..."
-          Get-ChildItem cert.pfx | Format-List
-          & certutil.exe -dump cert.pfx
 
       - name: Sign executable (release only)
         if: github.ref == 'refs/heads/main'
