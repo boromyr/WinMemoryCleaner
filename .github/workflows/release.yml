@@ -57,11 +57,7 @@ jobs:
         shell: pwsh
         run: msbuild src\WinMemoryCleaner.sln /p:Configuration=Release /p:Platform="Any CPU"
 
-      - name: Zip executable (release only)
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: |
-          Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
+      # === CODE SIGNING (main only) ===
 
       - name: Import signing certificate (release only)
         if: github.ref == 'refs/heads/main'
@@ -70,6 +66,18 @@ jobs:
           echo "${{ secrets.SIGNING_CERT }}" | Out-File encoded.txt -Encoding ascii
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
+
+      - name: Debug: Check PFX file (release only)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "cert.pfx")) {
+            Write-Error "cert.pfx not found!"
+            exit 1
+          }
+          Write-Host "Checking cert.pfx existence and info..."
+          Get-ChildItem cert.pfx | Format-List
+          & certutil.exe -dump cert.pfx
 
       - name: Sign executable (release only)
         if: github.ref == 'refs/heads/main'
@@ -84,7 +92,7 @@ jobs:
               Select-Object -First 1 -ExpandProperty FullName
           }
           if (-not $signtool) {
-            Write-Error "x64 or x86 signtool.exe not found"
+            Write-Error "signtool.exe not found"
             exit 1
           }
           if (-not (Test-Path cert.pfx)) {
@@ -98,10 +106,27 @@ jobs:
             /td sha256 /fd sha256 `
             src\bin\Release\WinMemoryCleaner.exe
 
+      - name: Verify signature (release only)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $sigInfo = Get-AuthenticodeSignature -FilePath src\bin\Release\WinMemoryCleaner.exe
+          Write-Host "Signature status: $($sigInfo.Status)"
+          if ($sigInfo.Status -ne 'Valid') {
+            Write-Error "Executable is not properly signed! Status: $($sigInfo.Status)"
+            exit 1
+          }
+
       - name: Cleanup certificate (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: Remove-Item cert.pfx
+
+      - name: Zip executable (release only)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
 
       - name: Create and push tag
         shell: pwsh
@@ -132,10 +157,19 @@ jobs:
         with:
           name: built
 
+      - name: Verify signature of executable (release job)
+        shell: pwsh
+        run: |
+          Write-Host "Verifying code signature of downloaded WinMemoryCleaner.exe..."
+          $sigInfo = Get-AuthenticodeSignature -FilePath ./WinMemoryCleaner.exe
+          Write-Host "Signature status: $($sigInfo.Status)"
+          if ($sigInfo.Status -ne 'Valid') {
+            Write-Error "Downloaded executable is not properly signed! Status: $($sigInfo.Status)"
+            exit 1
+          }
+
       - name: Draft Release using Release Drafter
-        uses: release-drafter/release-drafter@v5
-        with:
-          config-name: release-drafter.yml
+        uses: release-drafter/release-drafter@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -144,7 +178,7 @@ jobs:
         with:
           tag_name: ${{ needs.build.outputs.new_tag }}
           files: |
-            ./src/bin/Release/WinMemoryCleaner.exe
+            ./WinMemoryCleaner.exe
             ./WinMemoryCleaner.zip
           draft: true
           make_latest: true
