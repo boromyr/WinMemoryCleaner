@@ -71,18 +71,6 @@ jobs:
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
 
-      - name: Debug: Check PFX file (release only)
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "cert.pfx")) {
-            Write-Error "cert.pfx not found!"
-            exit 1
-          }
-          Write-Host "Checking cert.pfx existence and info..."
-          Get-ChildItem cert.pfx | Format-List
-          & certutil.exe -dump cert.pfx
-
       - name: Sign executable (release only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
