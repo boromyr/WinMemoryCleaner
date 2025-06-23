@@ -79,7 +79,6 @@ jobs:
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
-          # Decode SIGNING_CERT secret into cert.pfx file
           echo "${{ secrets.SIGNING_CERT }}" | Out-File encoded.txt -Encoding ascii
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
