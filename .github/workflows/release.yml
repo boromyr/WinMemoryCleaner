@@ -145,11 +145,21 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: built
+          path: build_artifacts
+
+      - name: List downloaded files
+        shell: pwsh
+        run: Get-ChildItem -Recurse build_artifacts | ForEach-Object { Write-Host $_.FullName }
 
       - name: Verify signature of executable (release job)
         shell: pwsh
         run: |
-          $sigInfo = Get-AuthenticodeSignature -FilePath ./WinMemoryCleaner.exe
+          $exePath = "build_artifacts/src/bin/Release/WinMemoryCleaner.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Executable not found at $exePath"
+            exit 1
+          }
+          $sigInfo = Get-AuthenticodeSignature -FilePath $exePath
           if ($sigInfo.SignerCertificate -eq $null) {
             Write-Error "Executable is not signed!"
             exit 1
@@ -167,7 +177,7 @@ jobs:
         with:
           tag_name: ${{ needs.build.outputs.new_tag }}
           files: |
-            ./WinMemoryCleaner.exe
-            ./WinMemoryCleaner.zip
+            ./build_artifacts/src/bin/Release/WinMemoryCleaner.exe
+            ./build_artifacts/WinMemoryCleaner.zip
           draft: true
           make_latest: true
