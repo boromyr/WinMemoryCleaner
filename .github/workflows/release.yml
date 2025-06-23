@@ -30,9 +30,10 @@ jobs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository code
+        uses: actions/checkout@v3
 
-      - name: Setup MSBuild
+      - name: Setup MSBuild environment
         uses: microsoft/setup-msbuild@v1
 
       - name: Bump minor version tag
@@ -53,11 +54,11 @@ jobs:
         shell: pwsh
         run: nuget restore src\WinMemoryCleaner.sln
 
-      - name: Build solution
+      - name: Build solution with MSBuild
         shell: pwsh
         run: msbuild src\WinMemoryCleaner.sln /p:Configuration=Release /p:Platform="Any CPU"
 
-      - name: Import signing certificate (release only)
+      - name: Import signing certificate (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -65,7 +66,7 @@ jobs:
           certutil -decode encoded.txt cert.pfx
           Remove-Item encoded.txt
 
-      - name: Sign executable (release only)
+      - name: Sign executable (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -94,7 +95,7 @@ jobs:
             /v `
             $exePath
 
-      - name: Verify signature (release only)
+      - name: Verify executable signature (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -106,18 +107,18 @@ jobs:
             Write-Host "Executable is signed."
           }
 
-      - name: Cleanup certificate (release only)
+      - name: Cleanup signing certificate (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: Remove-Item cert.pfx
 
-      - name: Zip executable (release only)
+      - name: Create ZIP archive of executable (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           Compress-Archive -Path src\bin\Release\WinMemoryCleaner.exe -DestinationPath WinMemoryCleaner.zip
 
-      - name: Create and push tag
+      - name: Create and push version tag
         shell: pwsh
         run: |
           git config user.name "github-actions"
@@ -125,7 +126,7 @@ jobs:
           git tag ${{ steps.bump.outputs.new_tag }}
           git push origin ${{ steps.bump.outputs.new_tag }}
 
-      - name: Upload artifacts
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: built
@@ -139,7 +140,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository code
+        uses: actions/checkout@v3
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -147,11 +149,11 @@ jobs:
           name: built
           path: build_artifacts
 
-      - name: List downloaded files
+      - name: List downloaded artifacts for debugging
         shell: pwsh
         run: Get-ChildItem -Recurse build_artifacts | ForEach-Object { Write-Host $_.FullName }
 
-      - name: Verify signature of executable (release job)
+      - name: Verify signature of executable
         shell: pwsh
         run: |
           $exePath = "build_artifacts/src/bin/Release/WinMemoryCleaner.exe"
@@ -167,7 +169,7 @@ jobs:
             Write-Host "Executable is signed."
           }
 
-      - name: Draft Release using Release Drafter
+      - name: Draft release using Release Drafter
         uses: release-drafter/release-drafter@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
