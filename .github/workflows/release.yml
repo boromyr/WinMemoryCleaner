@@ -85,12 +85,14 @@ jobs:
             Write-Error "cert.pfx not found!"
             exit 1
           }
+          $exePath = Resolve-Path src\bin\Release\WinMemoryCleaner.exe
           & $signtool sign `
             /f cert.pfx `
             /p "${{ secrets.SIGNING_PASSWORD }}" `
-            /tr http://timestamp.digicert.com `
+            /tr https://timestamp.digicert.com `
             /td sha256 /fd sha256 `
-            src\bin\Release\WinMemoryCleaner.exe
+            /v `
+            $exePath
 
       - name: Verify signature (release only)
         if: github.ref == 'refs/heads/main'
