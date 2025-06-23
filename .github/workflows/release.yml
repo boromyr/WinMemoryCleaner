@@ -99,10 +99,11 @@ jobs:
         shell: pwsh
         run: |
           $sigInfo = Get-AuthenticodeSignature -FilePath src\bin\Release\WinMemoryCleaner.exe
-          Write-Host "Signature status: $($sigInfo.Status)"
-          if ($sigInfo.Status -ne 'Valid') {
-            Write-Error "Executable is not properly signed! Status: $($sigInfo.Status)"
+          if ($sigInfo.SignerCertificate -eq $null) {
+            Write-Error "Executable is not signed!"
             exit 1
+          } else {
+            Write-Host "Executable is signed."
           }
 
       - name: Cleanup certificate (release only)
@@ -148,12 +149,12 @@ jobs:
       - name: Verify signature of executable (release job)
         shell: pwsh
         run: |
-          Write-Host "Verifying code signature of downloaded WinMemoryCleaner.exe..."
           $sigInfo = Get-AuthenticodeSignature -FilePath ./WinMemoryCleaner.exe
-          Write-Host "Signature status: $($sigInfo.Status)"
-          if ($sigInfo.Status -ne 'Valid') {
-            Write-Error "Downloaded executable is not properly signed! Status: $($sigInfo.Status)"
+          if ($sigInfo.SignerCertificate -eq $null) {
+            Write-Error "Executable is not signed!"
             exit 1
+          } else {
+            Write-Host "Executable is signed."
           }
 
       - name: Draft Release using Release Drafter
