@@ -169,9 +169,8 @@ jobs:
           tag_name: ${{ needs.build.outputs.new_tag }}
           name: ${{ needs.build.outputs.new_tag }}
           body: |
-            # ${{ github.event.head_commit.timestamp | slice(0,10) }}
-
-            ${{ join(github.event.head_commit.message.split("\n"), '\n- ') }}
+            # ${{ substring(github.event.head_commit.timestamp, 0, 10) }}
+            ${{ join(github.event.head_commit.message.split('\n'), '\n- ') }}
           files: |
             release_artifacts/src/bin/Release/WinMemoryCleaner.exe
             release_artifacts/WinMemoryCleaner.zip
